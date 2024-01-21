@@ -1,0 +1,215 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - workflow_release
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-rc[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-alpha'
+      - 'v[0-9]+.[0-9]+.[0-9]+-beta'
+
+env:
+  # Emit backtraces on panics.
+  RUST_BACKTRACE: full
+  # Enable colors in cargo output.
+  CARGO_TERM_COLOR: always
+  # Use sparse index if supported.
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+
+jobs:
+  check_release:
+    name: check_release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: rustup show
+        shell: bash
+
+      - name: Run cargo fmt
+        run: cargo fmt -- --check
+        shell: bash
+
+      - name: Run cargo check
+        run: RUSTFLAGS="-D warnings" cargo check --workspace
+        shell: bash
+
+      - name: Run cargo test
+        run: cargo test --workspace --no-fail-fast
+        shell: bash
+
+      - name: Run cargo clippy
+        run: cargo clippy -- -Dwarnings
+        shell: bash
+
+      - name: Gather release info
+        id: info
+        run: |
+          ref_name='${{ github.ref_name }}'
+          echo "ref_name: $ref_name"
+          # is this a test release, or a real release?
+          if [[ "$ref_name" == 'workflow_release' ]]; then
+            version='v0.0.0-test'
+          else
+            version="$ref_name"
+          fi
+          echo "version: $version"
+          echo "version=$version" >> $GITHUB_OUTPUT
+        shell: bash
+
+    outputs:
+      version: ${{ steps.info.outputs.version }}
+
+
+  build_release:
+    name: build_release
+    needs: ['check_release']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+
+    env:
+      # Disable incremental compilation.
+      CARGO_INCREMENTAL: 0
+
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - x86_64-pc-windows-msvc
+          - x86_64-apple-darwin
+          - aarch64-apple-darwin
+
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          set -x
+          rustup show
+          rustup target add ${{ matrix.target }}
+        shell: bash
+
+      - name: Build release binary
+        if: ${{ matrix.target != 'aarch64-apple-darwin' }}
+        run: cargo build --release --target='${{ matrix.target }}'
+        shell: bash
+
+      - name: Build release binary (macOS)
+        if: ${{ matrix.target == 'aarch64-apple-darwin' }}
+        run: |
+          set -x
+          sudo xcode-select -s /Applications/Xcode_13.1.app
+          xcodebuild -showsdks
+
+          MACOSX_DEPLOYMENT_TARGET=$(xcrun -sdk macosx12.0 --show-sdk-platform-version)
+          echo "MACOSX_DEPLOYMENT_TARGET: $MACOSX_DEPLOYMENT_TARGET"
+          SDKROOT=$(xcrun -sdk macosx12.0 --show-sdk-path)
+          echo "SDKROOT: $SDKROOT"
+
+          env SDKROOT="$SDKROOT" MACOSX_DEPLOYMENT_TARGET="$MACOSX_DEPLOYMENT_TARGET" \
+            cargo build --release --target='${{ matrix.target }}'
+
+          file target/${{ matrix.target }}/release/zcue
+        shell: bash
+
+      - name: Build archive
+        id: build
+        run: |
+          set -x
+
+          # create archive staging directory
+          staging='zcue-${{ needs.check_release.outputs.version }}-${{ matrix.target }}'
+          mkdir "$staging"
+          # copy supporting files
+          cp {README.md,LICENSE} "$staging/"
+          # copy build artifacts
+          target_dir='target/${{ matrix.target }}/release'
+          ls -1 "$target_dir/"
+          if [ '${{ matrix.os }}' = 'windows-latest' ]; then
+            cp "$target_dir/zcue.exe" "$staging/"
+          else
+            cp "$target_dir/zcue" "$staging/"
+          fi
+          # compress
+          ls -1 "$staging/"
+          mkdir 'assets'
+          7z a "assets/$staging.zip" "$staging"
+        shell: bash
+
+      - name: Upload the release assets
+        uses: actions/upload-artifact@v3
+        with:
+          name: release-assets
+          path: assets/
+
+  create_release:
+    name: create_release
+    needs: ['check_release', 'build_release']
+    runs-on: ubuntu-latest
+    permissions:
+      # IMPORTANT: mandatory for making GitHub Releases
+      # https://docs.github.com/en/actions/using-jobs/assigning-permissions-to-jobs#overview
+      contents: write
+
+    steps:
+      - name: Download the release assets
+        uses: actions/download-artifact@v3
+        with:
+          name: release-assets
+          path: assets/
+
+      - name: List the release assets
+        run: ls -1 assets/*
+        shell: bash
+
+      - name: Create GitHub release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          version='${{ needs.check_release.outputs.version }}'
+          echo "version: $version"
+
+          # empty arguments
+          set --
+
+          # is this a test release, or a real release?
+          if [[ "$version" == 'v0.0.0-test' ]]; then
+            set -- "$@" --target '${{ github.sha }}'
+          fi
+
+          # is this a pre-release (-rc*, -alpha, -beta, -test)?
+          if [[ "$version" == *"-"* ]]; then
+            set -- "$@" --prerelease
+          fi
+
+          date=$(env TZ=':America/Los_Angeles' date +'%Y-%m-%d')
+          echo "date: $date"
+
+          echo "args: $@"
+
+          set -x
+          gh release create \
+            "$version" \
+            assets/* \
+            --title "$version ($date)" \
+            --draft \
+            --repo '${{ github.repository }}' \
+            "$@"
+        shell: bash
