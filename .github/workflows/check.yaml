@@ -1,0 +1,47 @@
+name: Check
+
+on:
+  push:
+    branches:
+    - main
+    - workflow_check
+  pull_request:
+    branches:
+    - main
+
+env:
+  # Emit backtraces on panics.
+  RUST_BACKTRACE: full
+  # Enable colors in cargo output.
+  CARGO_TERM_COLOR: always
+  # Use sparse index if supported.
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: rustup show
+        shell: bash
+
+      - name: Run cargo fmt
+        run: cargo fmt -- --check
+        shell: bash
+
+      - name: Run cargo check
+        run: RUSTFLAGS="-D warnings" cargo check --workspace
+        shell: bash
+
+      - name: Run cargo test
+        run: cargo test --workspace --no-fail-fast
+        shell: bash
+
+      - name: Run cargo clippy
+        run: cargo clippy -- -Dwarnings
+        shell: bash
