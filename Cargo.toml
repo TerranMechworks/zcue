@@ -1,0 +1,23 @@
+[package]
+name = "zcue"
+version = "0.1.0"
+
+description = "Extract or apply cue points from WAV files of certain games."
+readme = "README.md"
+license = "EUPL-1.2"
+repository = "https://github.com/TerranMechworks/zcue"
+authors = ["Toby Fleming <tobywf@users.noreply.github.com>"]
+
+include = ["src/**/*.rs", "README.md", "LICENSE"]
+
+rust-version = "1.75"
+edition = "2021"
+
+[dependencies]
+camino = "1.1.6"
+clap = { version = "4.4", default-features = false, features = ["std", "color", "help", "usage", "derive"] }
+color-eyre = "0.6"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }

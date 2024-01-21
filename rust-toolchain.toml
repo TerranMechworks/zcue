@@ -1,0 +1,5 @@
+[toolchain]
+# also change in Cargo.toml
+channel = "1.75.0"
+profile = "minimal"
+components = ["rustfmt", "clippy"]
