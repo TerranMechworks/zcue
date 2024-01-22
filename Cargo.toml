@@ -9,6 +9,7 @@ repository = "https://github.com/TerranMechworks/zcue"
 authors = ["Toby Fleming <tobywf@users.noreply.github.com>"]
 
 include = ["src/**/*.rs", "README.md", "LICENSE"]
+publish = false
 
 rust-version = "1.75"
 edition = "2021"

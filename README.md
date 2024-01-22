@@ -1,6 +1,6 @@
 # ZCue
 
-ZCue is a cross-platform, open-source project to extract or apply cue points from wave/wav files of certain games developed by Zipper Interactive™ to modern formats:
+ZCue is a cross-platform, open-source project to extract or apply cue points from wave/wav files of certain games developed by Zipper Interactive™:
 
 * the Recoil™ game (1999)
 * the MechWarrior 3™ base game (1999)
